@@ -12,19 +12,29 @@ import { AuthRequest } from '../middleware/auth';
 /**
  * Get all templates for the authenticated user
  * GET /api/templates
+ * Supports pagination
+ * Query params:
+ * - page: page number (default: 1)
+ * - limit: items per page (default: 6)
  */
 export const getTemplates = async (
   req: AuthRequest,
-  res: Response<ApiResponse<WorkoutTemplate[]>>
+  res: Response<ApiResponse<{ templates: WorkoutTemplate[]; total: number; page: number; limit: number; hasMore: boolean }>>
 ): Promise<void> => {
   try {
     const userId = req.user!.id;
+    const { page = '1', limit = '6' } = req.query;
 
-    const { data, error } = await supabaseAdmin
+    const pageNum = parseInt(page as string, 10) || 1;
+    const limitNum = parseInt(limit as string, 10) || 6;
+    const offset = (pageNum - 1) * limitNum;
+
+    const { data, error, count } = await supabaseAdmin
       .from('workout_templates')
-      .select('*')
+      .select('*', { count: 'exact' })
       .eq('user_id', userId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limitNum - 1);
 
     if (error) {
       console.error('Error fetching templates:', error);
@@ -35,9 +45,18 @@ export const getTemplates = async (
       return;
     }
 
+    const total = count || 0;
+    const hasMore = offset + limitNum < total;
+
     res.json({
       success: true,
-      data: data || [],
+      data: {
+        templates: data || [],
+        total,
+        page: pageNum,
+        limit: limitNum,
+        hasMore,
+      },
     });
   } catch (error) {
     console.error('Error in getTemplates:', error);
@@ -129,7 +148,7 @@ export const createTemplate = async (
 ): Promise<void> => {
   try {
     const userId = req.user!.id;
-    const { name, description, exercises }: CreateTemplateRequest = req.body;
+    const { name, description, training_type, exercises }: CreateTemplateRequest = req.body;
 
     if (!name || !name.trim()) {
       res.status(400).json({
@@ -180,6 +199,7 @@ export const createTemplate = async (
         user_id: userId,
         name: name.trim(),
         description: description?.trim() || null,
+        training_type: training_type || null,
       })
       .select()
       .single();
@@ -386,6 +406,9 @@ export const updateTemplate = async (
     }
     if (updates.description !== undefined) {
       templateUpdates.description = updates.description?.trim() || null;
+    }
+    if (updates.training_type !== undefined) {
+      templateUpdates.training_type = updates.training_type || null;
     }
 
     if (Object.keys(templateUpdates).length > 0) {

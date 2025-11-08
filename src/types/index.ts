@@ -99,6 +99,7 @@ export interface WorkoutTemplate {
   user_id: string;
   name: string;
   description?: string;
+  training_type?: string;
   created_at: string;
   updated_at: string;
 }
@@ -121,6 +122,7 @@ export interface WorkoutTemplateWithExercises extends WorkoutTemplate {
 export interface CreateTemplateRequest {
   name: string;
   description?: string;
+  training_type?: string;
   exercises: {
     exercise_id: string;
     exercise_order: number;
@@ -134,6 +136,7 @@ export interface CreateTemplateRequest {
 export interface UpdateTemplateRequest {
   name?: string;
   description?: string;
+  training_type?: string;
   exercises?: {
     exercise_id: string;
     exercise_order: number;
