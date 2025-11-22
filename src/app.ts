@@ -66,7 +66,7 @@ if (config.nodeEnv !== 'development') {
 }
 
 // Health check endpoint
-app.get('/health', (_req, res) => {
+app.get('/health', (_req: express.Request, res: express.Response) => {
   res.json({
     success: true,
     message: 'Server is running',
