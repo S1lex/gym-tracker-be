@@ -13,7 +13,9 @@ export const initiateGoogleOAuth = async (
 ): Promise<void> => {
   try {
     const { redirectTo } = req.query;
-    const redirectUrl = typeof redirectTo === 'string' ? redirectTo : `${process.env.FRONTEND_URL || 'http://localhost:8081'}/auth/callback`;
+    // Use environment variable for frontend URL, with fallback for development
+    const frontendUrl = process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:8081');
+    const redirectUrl = typeof redirectTo === 'string' ? redirectTo : `${frontendUrl}/auth/callback`;
 
     // Generate OAuth URL using Supabase
     const { data, error } = await supabaseClient.auth.signInWithOAuth({
