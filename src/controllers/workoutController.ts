@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import { supabaseClient, supabaseAdmin } from '../utils/supabaseClient';
+import { supabaseAdmin } from '../utils/supabaseClient';
 import { ApiResponse, Workout, WorkoutWithSets, CreateWorkoutRequest, UpdateWorkoutRequest } from '../types';
 import { AuthRequest } from '../middleware/auth';
 

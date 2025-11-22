@@ -405,10 +405,10 @@ export const updateTemplate = async (
       templateUpdates.name = updates.name.trim();
     }
     if (updates.description !== undefined) {
-      templateUpdates.description = updates.description?.trim() || null;
+      templateUpdates.description = updates.description?.trim() || undefined;
     }
     if (updates.training_type !== undefined) {
-      templateUpdates.training_type = updates.training_type || null;
+      templateUpdates.training_type = updates.training_type || undefined;
     }
 
     if (Object.keys(templateUpdates).length > 0) {
