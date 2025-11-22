@@ -28,18 +28,10 @@ const corsOptions = {
       return callback(null, true);
     }
     
-    // In production, specify allowed origins
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://localhost:8081', // React Native Metro bundler
-      'http://localhost:19006', // Expo web
-    ];
-    
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
+    // In production, allow all origins since this is a mobile app backend
+    // Mobile apps don't send origin headers, but web clients might
+    // You can restrict this further if needed by adding specific domains
+    return callback(null, true);
   },
   credentials: true,
 };
@@ -64,6 +56,20 @@ if (config.nodeEnv !== 'development') {
 } else {
   console.log('⚠️  Rate limiting is DISABLED in development mode');
 }
+
+// Root endpoint - provides API information
+app.get('/', (_req: express.Request, res: express.Response) => {
+  res.json({
+    success: true,
+    message: 'Gym Tracker API',
+    version: '1.0.0',
+    endpoints: {
+      health: '/health',
+      api: '/api',
+    },
+    timestamp: new Date().toISOString(),
+  });
+});
 
 // Health check endpoint
 app.get('/health', (_req: express.Request, res: express.Response) => {
