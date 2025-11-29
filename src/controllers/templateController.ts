@@ -33,6 +33,7 @@ export const getTemplates = async (
       .from('workout_templates')
       .select('*', { count: 'exact' })
       .eq('user_id', userId)
+      .eq('is_pro_program_template', false) // Exclude pro program templates
       .order('created_at', { ascending: false })
       .range(offset, offset + limitNum - 1);
 

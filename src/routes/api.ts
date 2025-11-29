@@ -5,6 +5,7 @@ import * as workoutHistoryController from '../controllers/workoutHistoryControll
 import * as setController from '../controllers/setController';
 import * as exerciseController from '../controllers/exerciseController';
 import * as templateController from '../controllers/templateController';
+import * as proProgramController from '../controllers/proProgramController';
 import { authenticate } from '../middleware/auth';
 
 const router = Router();
@@ -37,5 +38,11 @@ router.get('/templates/:id', authenticate, templateController.getTemplateById);
 router.post('/templates', authenticate, templateController.createTemplate);
 router.put('/templates/:id', authenticate, templateController.updateTemplate);
 router.delete('/templates/:id', authenticate, templateController.deleteTemplate);
+
+// Pro Programs routes (public - no auth required for viewing)
+router.get('/pro-programs', proProgramController.getProPrograms);
+router.get('/pro-programs/:id', proProgramController.getProProgramById);
+// Admin routes (require authentication)
+router.post('/pro-programs', authenticate, proProgramController.createProProgram);
 
 export default router;
