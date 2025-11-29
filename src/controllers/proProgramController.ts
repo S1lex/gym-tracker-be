@@ -71,7 +71,7 @@ export interface CreateProProgramRequest {
  * Public endpoint - no authentication required
  */
 export const getProPrograms = async (
-  req: AuthRequest,
+  _req: AuthRequest,
   res: Response<ApiResponse<ProProgram[]>>
 ): Promise<void> => {
   try {
@@ -270,7 +270,7 @@ export const createProProgram = async (
       template_id: day.template_id,
     }));
 
-    const { data: daysData, error: daysError } = await supabaseAdmin
+    const { error: daysError } = await supabaseAdmin
       .from('pro_program_days')
       .insert(daysToInsert)
       .select();
