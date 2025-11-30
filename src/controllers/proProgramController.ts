@@ -163,7 +163,12 @@ export const getProProgramById = async (
         : day.workout_templates;
       
       return {
-        ...day,
+        id: day.id,
+        pro_program_id: day.pro_program_id,
+        day_number: day.day_number,
+        name: day.name,
+        template_id: day.template_id, // Explicitly include template_id
+        created_at: day.created_at,
         template: templateData || null,
       };
     });

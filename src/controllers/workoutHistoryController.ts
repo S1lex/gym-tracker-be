@@ -65,13 +65,47 @@ export const saveWorkoutHistory = async (
       exercises,
     }: Omit<WorkoutHistory, 'id' | 'userId'> = req.body;
 
+    console.log('saveWorkoutHistory: Received request', {
+      userId,
+      timestamp,
+      trainingType,
+      duration,
+      exercisesCount: exercises?.length || 0,
+      exercises: exercises?.map(ex => ({
+        exerciseId: ex.exerciseId,
+        exerciseName: ex.exerciseName,
+        setsCount: ex.sets?.length || 0
+      }))
+    });
+
     // Validate required fields
     if (!timestamp || !exercises || exercises.length === 0) {
+      console.error('saveWorkoutHistory: Validation failed', {
+        hasTimestamp: !!timestamp,
+        hasExercises: !!exercises,
+        exercisesLength: exercises?.length || 0
+      });
       res.status(400).json({
         success: false,
         error: 'Missing required fields: timestamp and exercises are required',
       });
       return;
+    }
+
+    // Filter out exercises with no sets (they might have been filtered out if no sets were completed)
+    const exercisesWithSets = exercises.filter(ex => ex.sets && ex.sets.length > 0);
+    
+    // Allow workouts with no sets (user might have started but not completed any sets)
+    // But log a warning
+    if (exercisesWithSets.length === 0) {
+      console.warn('saveWorkoutHistory: No exercises with sets to save, but saving workout anyway', {
+        totalExercises: exercises.length,
+        exercises: exercises.map(ex => ({
+          exerciseId: ex.exerciseId,
+          exerciseName: ex.exerciseName,
+          setsCount: ex.sets?.length || 0
+        }))
+      });
     }
 
     // Check if workout_history table exists, if not use workouts table with metadata
@@ -103,30 +137,151 @@ export const saveWorkoutHistory = async (
       return;
     }
 
+    // Convert exercise IDs to UUIDs if they're strings (using exercise_id_mapping table)
+    const exerciseIds = [...new Set(exercisesWithSets.map(ex => ex.exerciseId))];
+    const exerciseIdMap: Record<string, string> = {};
+    
+    // Check which IDs are UUIDs and which need mapping
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const stringIds = exerciseIds.filter(id => !uuidRegex.test(id));
+    
+    if (stringIds.length > 0) {
+      // Look up UUIDs for string IDs
+      const { data: mappings, error: mappingError } = await supabaseAdmin
+        .from('exercise_id_mapping')
+        .select('original_id, uuid_id')
+        .in('original_id', stringIds);
+      
+      if (mappingError) {
+        console.error('Error fetching exercise ID mappings:', mappingError);
+      } else if (mappings) {
+        mappings.forEach((mapping: any) => {
+          exerciseIdMap[mapping.original_id] = mapping.uuid_id;
+        });
+      }
+      
+      // For any string IDs not found in mapping, try to find by exercise name
+      const unmappedIds = stringIds.filter(id => !exerciseIdMap[id]);
+      if (unmappedIds.length > 0) {
+        const exercisesToLookup = exercisesWithSets.filter(ex => unmappedIds.includes(ex.exerciseId));
+        const exerciseNames = [...new Set(exercisesToLookup.map(ex => ex.exerciseName))];
+        
+        if (exerciseNames.length > 0) {
+          const { data: exercisesByName, error: exercisesError } = await supabaseAdmin
+            .from('exercises')
+            .select('id, name')
+            .in('name', exerciseNames);
+          
+          if (!exercisesError && exercisesByName) {
+            exercisesByName.forEach((ex: any) => {
+              // Find the exercise ID that matches this name
+              const matchingExercise = exercisesToLookup.find(e => e.exerciseName === ex.name);
+              if (matchingExercise) {
+                exerciseIdMap[matchingExercise.exerciseId] = ex.id;
+              }
+            });
+          }
+        }
+      }
+    }
+    
+    // Add UUIDs that are already UUIDs to the map
+    exerciseIds.forEach(id => {
+      if (uuidRegex.test(id)) {
+        exerciseIdMap[id] = id;
+      }
+    });
+
     // Store all sets in workout_sets table
-    const setsToInsert = exercises.flatMap((exercise) =>
-      exercise.sets.map((set) => ({
-        workout_id: workoutData.id,
-        exercise_id: exercise.exerciseId,
-        exercise_name: exercise.exerciseName || null, // Save exercise name for historical accuracy
-        set_number: set.setNumber,
-        reps: set.reps,
-        weight: set.weight,
-      }))
-    );
+    // Ensure reps and weight are numbers (they should be from frontend, but double-check)
+    const setsToInsert = exercisesWithSets.flatMap((exercise) => {
+      const exerciseUuid = exerciseIdMap[exercise.exerciseId];
+      
+      // Skip if we couldn't find a UUID for this exercise
+      if (!exerciseUuid) {
+        console.warn('saveWorkoutHistory: Could not find UUID for exercise', {
+          exerciseId: exercise.exerciseId,
+          exerciseName: exercise.exerciseName
+        });
+        return [];
+      }
+      
+      return exercise.sets
+        .filter((set) => {
+          // Filter out sets with invalid data (both weight and reps should be valid numbers > 0)
+          const weight = typeof set.weight === 'number' ? set.weight : parseFloat(String(set.weight)) || 0;
+          const reps = typeof set.reps === 'number' ? set.reps : parseFloat(String(set.reps)) || 0;
+          // Include sets that have at least weight OR reps > 0 (allow partial data)
+          return weight > 0 || reps > 0;
+        })
+        .map((set) => ({
+          workout_id: workoutData.id,
+          exercise_id: exerciseUuid, // Use mapped UUID
+          exercise_name: exercise.exerciseName || null, // Save exercise name for historical accuracy
+          set_number: set.setNumber,
+          reps: typeof set.reps === 'number' ? set.reps : parseFloat(String(set.reps)) || 0,
+          weight: typeof set.weight === 'number' ? set.weight : parseFloat(String(set.weight)) || 0,
+        }));
+    });
+
+    console.log('saveWorkoutHistory: Saving workout', {
+      workoutId: workoutData.id,
+      setsToInsertCount: setsToInsert.length,
+      exercisesWithSetsCount: exercisesWithSets.length,
+      totalExercises: exercises.length
+    });
 
     if (setsToInsert.length > 0) {
-      const { error: setsError } = await supabaseAdmin
+      console.log('saveWorkoutHistory: Attempting to insert sets', {
+        setsCount: setsToInsert.length,
+        sampleSet: setsToInsert[0],
+        allSets: setsToInsert.map(s => ({
+          workout_id: s.workout_id,
+          exercise_id: s.exercise_id,
+          exercise_name: s.exercise_name,
+          set_number: s.set_number,
+          reps: s.reps,
+          weight: s.weight,
+          repsType: typeof s.reps,
+          weightType: typeof s.weight
+        }))
+      });
+
+      const { data: insertedSets, error: setsError } = await supabaseAdmin
         .from('workout_sets')
-        .insert(setsToInsert);
+        .insert(setsToInsert)
+        .select();
 
       if (setsError) {
-        console.error('Error saving workout sets:', setsError);
-        // Continue anyway - workout is saved
+        console.error('Error saving workout sets:', {
+          error: setsError,
+          message: setsError.message,
+          details: setsError.details,
+          hint: setsError.hint,
+          code: setsError.code
+        });
+        // Continue anyway - workout is saved even if sets fail
+      } else {
+        console.log('saveWorkoutHistory: Sets saved successfully', {
+          setsCount: setsToInsert.length,
+          insertedCount: insertedSets?.length || 0,
+          insertedSets: insertedSets
+        });
       }
+    } else {
+      console.log('saveWorkoutHistory: No sets to save (workout will be saved without sets)', {
+        exercisesWithSetsCount: exercisesWithSets.length,
+        exercisesWithSets: exercisesWithSets.map(ex => ({
+          exerciseId: ex.exerciseId,
+          exerciseName: ex.exerciseName,
+          setsCount: ex.sets.length,
+          sets: ex.sets
+        }))
+      });
     }
 
     // Build response with full workout history data
+    // Use exercisesWithSets (filtered) or empty array if no exercises with sets
     const workoutHistory: WorkoutHistory = {
       id: workoutData.id,
       userId,
@@ -134,8 +289,15 @@ export const saveWorkoutHistory = async (
       trainingType,
       duration,
       tonnage,
-      exercises,
+      exercises: exercisesWithSets.length > 0 ? exercisesWithSets : [], // Use filtered exercises or empty array
     };
+
+    console.log('saveWorkoutHistory: Workout saved successfully', {
+      workoutId: workoutData.id,
+      exercisesCount: exercisesWithSets.length,
+      totalExercisesReceived: exercises.length,
+      endTime: endTime.toISOString()
+    });
 
     res.status(201).json({
       success: true,
@@ -165,7 +327,16 @@ export const getWorkoutHistory = async (
     const userId = req.user!.id;
     const { limit, offset, startDate, endDate } = req.query;
 
-    // Build query
+    console.log('getWorkoutHistory: Fetching history for user', {
+      userId,
+      limit,
+      offset,
+      startDate,
+      endDate
+    });
+
+    // Build query - only return completed workouts (with end_time)
+    // Using .not('end_time', 'is', null) to filter out incomplete workouts
     let query = supabaseAdmin
       .from('workouts')
       .select(`
@@ -184,7 +355,28 @@ export const getWorkoutHistory = async (
         )
       `)
       .eq('user_id', userId)
-      .order('start_time', { ascending: false });
+      .not('end_time', 'is', null); // Only return completed workouts
+    
+    query = query.order('start_time', { ascending: false });
+    
+    // Debug: Also query all workouts to compare
+    const { data: allWorkouts } = await supabaseAdmin
+      .from('workouts')
+      .select('id, user_id, start_time, end_time')
+      .eq('user_id', userId)
+      .order('start_time', { ascending: false })
+      .limit(10);
+    
+    console.log('getWorkoutHistory: All workouts (for debugging)', {
+      total: allWorkouts?.length || 0,
+      withEndTime: allWorkouts?.filter(w => w.end_time).length || 0,
+      withoutEndTime: allWorkouts?.filter(w => !w.end_time).length || 0,
+      recentWorkouts: allWorkouts?.slice(0, 5).map(w => ({
+        id: w.id,
+        start_time: w.start_time,
+        hasEndTime: !!w.end_time
+      }))
+    });
 
     // Apply date filters
     if (startDate) {
@@ -216,9 +408,58 @@ export const getWorkoutHistory = async (
       return;
     }
 
+    // If nested query didn't return sets, fetch them separately
+    // This can happen with RLS policies even with admin client
+    const workoutIds = (data || []).map((w: any) => w.id);
+    let allSets: any[] = [];
+    
+    if (workoutIds.length > 0) {
+      const { data: setsData, error: setsError } = await supabaseAdmin
+        .from('workout_sets')
+        .select('id, workout_id, exercise_id, exercise_name, set_number, reps, weight')
+        .in('workout_id', workoutIds);
+      
+      if (setsError) {
+        console.error('Error fetching workout sets separately:', setsError);
+      } else {
+        allSets = setsData || [];
+        console.log('getWorkoutHistory: Fetched sets separately', {
+          setsCount: allSets.length,
+          workoutIds: workoutIds.length
+        });
+      }
+    }
+
+    // Attach sets to workouts if they weren't included in nested query
+    const workoutsWithSets = (data || []).map((workout: any) => {
+      if (!workout.workout_sets || workout.workout_sets.length === 0) {
+        workout.workout_sets = allSets.filter((set: any) => set.workout_id === workout.id);
+      }
+      return workout;
+    });
+
+    console.log('getWorkoutHistory: Query result', {
+      workoutsCount: data?.length || 0,
+      hasData: !!data,
+      setsFetchedSeparately: allSets.length,
+      firstWorkout: workoutsWithSets[0] ? {
+        id: workoutsWithSets[0].id,
+        name: workoutsWithSets[0].name,
+        start_time: workoutsWithSets[0].start_time,
+        end_time: workoutsWithSets[0].end_time,
+        setsCount: workoutsWithSets[0].workout_sets?.length || 0,
+        sets: workoutsWithSets[0].workout_sets || []
+      } : null,
+      allWorkoutsWithSets: workoutsWithSets.map((w: any) => ({
+        id: w.id,
+        setsCount: w.workout_sets?.length || 0,
+        sets: w.workout_sets || []
+      }))
+    });
+
     // Transform data to WorkoutHistory format
     // Exercise names are now stored in workout_sets.exercise_name for historical accuracy
-    const workoutHistory: WorkoutHistory[] = (data || []).map((workout: any) => {
+    const workoutHistory: WorkoutHistory[] = workoutsWithSets.map((workout: any) => {
       // Group sets by exercise
       const exerciseMap: Record<string, WorkoutHistoryExercise> = {};
       
@@ -247,7 +488,7 @@ export const getWorkoutHistory = async (
         return total + exercise.sets.reduce((sum, set) => sum + set.weight * set.reps, 0);
       }, 0);
 
-      return {
+      const transformed = {
         id: workout.id,
         userId: workout.user_id,
         timestamp: workout.start_time,
@@ -256,6 +497,21 @@ export const getWorkoutHistory = async (
         tonnage,
         exercises: Object.values(exerciseMap),
       };
+
+      console.log('getWorkoutHistory: Transformed workout', {
+        id: transformed.id,
+        timestamp: transformed.timestamp,
+        exercisesCount: transformed.exercises.length,
+        setsCount: transformed.exercises.reduce((sum, ex) => sum + ex.sets.length, 0)
+      });
+
+      return transformed;
+    });
+
+    console.log('getWorkoutHistory: Final result', {
+      totalWorkouts: workoutHistory.length,
+      workoutsWithExercises: workoutHistory.filter(w => w.exercises.length > 0).length,
+      workoutsWithoutExercises: workoutHistory.filter(w => w.exercises.length === 0).length
     });
 
     res.json({
@@ -319,10 +575,26 @@ export const getWorkoutHistoryById = async (
       return;
     }
 
+    // If nested query didn't return sets, fetch them separately
+    let sets = data.workout_sets || [];
+    if (!sets || sets.length === 0) {
+      const { data: setsData, error: setsError } = await supabaseAdmin
+        .from('workout_sets')
+        .select('id, workout_id, exercise_id, exercise_name, set_number, reps, weight')
+        .eq('workout_id', id);
+      
+      if (!setsError && setsData) {
+        sets = setsData;
+        console.log('getWorkoutHistoryById: Fetched sets separately', {
+          setsCount: sets.length
+        });
+      }
+    }
+
     // Transform to WorkoutHistory format (same as getWorkoutHistory)
     const exerciseMap: Record<string, WorkoutHistoryExercise> = {};
     
-    (data.workout_sets || []).forEach((set: any) => {
+    sets.forEach((set: any) => {
       if (!exerciseMap[set.exercise_id]) {
         exerciseMap[set.exercise_id] = {
           exerciseId: set.exercise_id,
@@ -388,7 +660,7 @@ export const getWorkoutStatistics = async (
     const userId = req.user!.id;
     const { startDate, endDate } = req.query;
 
-    // Build query
+    // Build query - only return completed workouts (with end_time)
     let query = supabaseAdmin
       .from('workouts')
       .select(`
@@ -404,7 +676,9 @@ export const getWorkoutStatistics = async (
         )
       `)
       .eq('user_id', userId)
-      .order('start_time', { ascending: false });
+      .not('end_time', 'is', null); // Only return completed workouts
+    
+    query = query.order('start_time', { ascending: false });
 
     // Apply date filters
     if (startDate) {
