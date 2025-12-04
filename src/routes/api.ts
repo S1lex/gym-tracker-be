@@ -6,7 +6,9 @@ import * as setController from '../controllers/setController';
 import * as exerciseController from '../controllers/exerciseController';
 import * as templateController from '../controllers/templateController';
 import * as proProgramController from '../controllers/proProgramController';
+import * as stripeController from '../controllers/stripeController';
 import { authenticate } from '../middleware/auth';
+import i18nRouter from './i18n';
 
 const router = Router();
 
@@ -16,6 +18,9 @@ router.post('/auth/login', authController.login);
 router.get('/auth/google', authController.initiateGoogleOAuth);
 router.get('/auth/google/callback', authController.handleGoogleOAuthCallback);
 router.get('/exercises', exerciseController.getExercises);
+
+// i18n translation routes (public - no auth required)
+router.use('/i18n', i18nRouter);
 
 // Protected routes (require authentication)
 router.get('/workouts', authenticate, workoutController.getWorkouts);
@@ -44,5 +49,12 @@ router.get('/pro-programs', proProgramController.getProPrograms);
 router.get('/pro-programs/:id', proProgramController.getProProgramById);
 // Admin routes (require authentication)
 router.post('/pro-programs', authenticate, proProgramController.createProProgram);
+
+// Stripe routes (require authentication)
+router.post('/stripe/create-portal-session', authenticate, stripeController.createPortalSession);
+router.get('/stripe/config', authenticate, stripeController.getStripeConfig);
+router.get('/stripe/subscription-status', authenticate, stripeController.getSubscriptionStatus);
+router.get('/stripe/products', authenticate, stripeController.getProducts);
+router.post('/stripe/create-checkout-session', authenticate, stripeController.createCheckoutSession);
 
 export default router;
