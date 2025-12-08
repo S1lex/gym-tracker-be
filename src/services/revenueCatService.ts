@@ -182,34 +182,28 @@ export const getOrCreateStripeCustomerId = async (
   }
 
   // For Web purchases, Stripe creates customers automatically during checkout
-  // Search for existing customer by email first
+  // Search for existing customer by email first, but ONLY use if it's linked to this user
   if (email) {
     try {
       const customers = await stripe.customers.list({
         email: email,
-        limit: 1,
+        limit: 10, // Get multiple to find the one matching this user
       });
       
       if (customers.data.length > 0) {
-        const foundCustomer = customers.data[0];
-        console.log(`Found existing Stripe customer by email: ${foundCustomer.id}`);
+        // Find customer that matches this user ID in metadata
+        const matchingCustomer = customers.data.find(
+          customer => customer.metadata?.app_user_id === appUserId
+        );
         
-        // Update customer metadata to link with app user ID if not already set
-        if (!foundCustomer.metadata?.app_user_id) {
-          try {
-            await stripe.customers.update(foundCustomer.id, {
-              metadata: {
-                ...foundCustomer.metadata,
-                app_user_id: appUserId,
-                revenuecat_user_id: appUserId,
-              },
-            });
-          } catch (updateError) {
-            console.warn('Could not update customer metadata:', updateError);
-          }
+        if (matchingCustomer) {
+          console.log(`Found existing Stripe customer by email linked to user ${appUserId}: ${matchingCustomer.id}`);
+          return matchingCustomer.id;
+        } else {
+          // Found customers but none match this user ID - don't use them
+          // They might belong to a different account with the same email
+          console.log(`Found Stripe customers by email but none match user ${appUserId}. Will create new customer.`);
         }
-        
-        return foundCustomer.id;
       }
     } catch (searchError) {
       console.warn('Error searching for Stripe customer by email:', searchError);

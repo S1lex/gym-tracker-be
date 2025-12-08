@@ -7,6 +7,9 @@ import * as exerciseController from '../controllers/exerciseController';
 import * as templateController from '../controllers/templateController';
 import * as proProgramController from '../controllers/proProgramController';
 import * as stripeController from '../controllers/stripeController';
+import * as bodyMeasurementController from '../controllers/bodyMeasurementController';
+import * as weeklyScheduleController from '../controllers/weeklyScheduleController';
+import * as userGoalsController from '../controllers/userGoalsController';
 import { authenticate } from '../middleware/auth';
 import i18nRouter from './i18n';
 
@@ -56,5 +59,27 @@ router.get('/stripe/config', authenticate, stripeController.getStripeConfig);
 router.get('/stripe/subscription-status', authenticate, stripeController.getSubscriptionStatus);
 router.get('/stripe/products', authenticate, stripeController.getProducts);
 router.post('/stripe/create-checkout-session', authenticate, stripeController.createCheckoutSession);
+router.get('/stripe/verify-checkout-session', authenticate, stripeController.verifyCheckoutSession);
+
+// Body Measurements routes (require authentication)
+router.get('/body-measurements', authenticate, bodyMeasurementController.getMeasurements);
+router.get('/body-measurements/analytics', authenticate, bodyMeasurementController.getMeasurementAnalytics);
+router.get('/body-measurements/:id', authenticate, bodyMeasurementController.getMeasurementById);
+router.post('/body-measurements', authenticate, bodyMeasurementController.createMeasurement);
+router.post('/body-measurements/batch', authenticate, bodyMeasurementController.createMeasurementsBatch);
+router.put('/body-measurements/:id', authenticate, bodyMeasurementController.updateMeasurement);
+router.delete('/body-measurements/:id', authenticate, bodyMeasurementController.deleteMeasurement);
+
+// Weekly Schedule routes (require authentication)
+router.get('/weekly-schedule', authenticate, weeklyScheduleController.getWeeklySchedule);
+router.put('/weekly-schedule', authenticate, weeklyScheduleController.updateWeeklySchedule);
+
+// User Goals routes (require authentication)
+router.get('/user-goals', authenticate, userGoalsController.getUserGoals);
+router.get('/user-goals/:id', authenticate, userGoalsController.getGoalById);
+router.post('/user-goals', authenticate, userGoalsController.createGoal);
+router.put('/user-goals/:id', authenticate, userGoalsController.updateGoal);
+router.put('/user-goals/:id/update-current', authenticate, userGoalsController.updateGoalCurrentValue);
+router.delete('/user-goals/:id', authenticate, userGoalsController.deleteGoal);
 
 export default router;

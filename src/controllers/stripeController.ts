@@ -169,7 +169,7 @@ export const getStripeConfig = async (
  */
 export const getSubscriptionStatus = async (
   req: AuthRequest,
-  res: Response<ApiResponse<{ hasPro: boolean; isPaid: boolean; activeEntitlements: string[] }>>
+  res: Response<ApiResponse<{ hasPro: boolean; activeEntitlements: string[] }>>
 ): Promise<void> => {
   try {
     if (!stripe) {
@@ -200,6 +200,7 @@ export const getSubscriptionStatus = async (
     );
 
     // If not found, try searching by email directly (in case customer was created during checkout)
+    // IMPORTANT: Only use customers that are linked to this user ID via metadata
     if (!stripeCustomerId && userEmail) {
       try {
         const customers = await stripe.customers.list({
@@ -207,23 +208,21 @@ export const getSubscriptionStatus = async (
           limit: 10, // Get multiple in case there are duplicates
         });
         
-        // Find the most recent customer (most likely from recent purchase)
         if (customers.data.length > 0) {
-          // Sort by created date (most recent first)
-          customers.data.sort((a, b) => (b.created || 0) - (a.created || 0));
-          stripeCustomerId = customers.data[0].id;
-          console.log(`Found Stripe customer by email (most recent): ${stripeCustomerId}`);
+          // Find customer that matches this user ID in metadata
+          const matchingCustomer = customers.data.find(
+            customer => customer.metadata?.app_user_id === userId
+          );
           
-          // Update metadata to link with app user ID
-          try {
-            await stripe.customers.update(stripeCustomerId, {
-              metadata: {
-                ...customers.data[0].metadata,
-                app_user_id: userId,
-              },
-            });
-          } catch (updateError) {
-            console.warn('Could not update customer metadata:', updateError);
+          if (matchingCustomer) {
+            // Found customer linked to this user
+            stripeCustomerId = matchingCustomer.id;
+            console.log(`Found Stripe customer by email linked to user ${userId}: ${stripeCustomerId}`);
+          } else {
+            // No customer found with matching user ID
+            // Don't use any customer - they might belong to a different account
+            console.log(`Found Stripe customers by email but none match user ${userId}. Not using them.`);
+            stripeCustomerId = null;
           }
         }
       } catch (searchError) {
@@ -237,7 +236,6 @@ export const getSubscriptionStatus = async (
         success: true,
         data: {
           hasPro: false,
-          isPaid: false,
           activeEntitlements: [],
         },
       });
@@ -251,64 +249,12 @@ export const getSubscriptionStatus = async (
       limit: 100,
     });
 
-    // Get all subscriptions (including past ones) to check if user has ever paid
-    const allSubscriptions = await stripe.subscriptions.list({
-      customer: stripeCustomerId,
-      limit: 100,
-    });
-
-    // Also check for one-time payments (charges and payment intents)
-    const charges = await stripe.charges.list({
-      customer: stripeCustomerId,
-      limit: 100,
-    });
-
-    // Also check payment intents (for one-time payments via Checkout)
-    const paymentIntents = await stripe.paymentIntents.list({
-      customer: stripeCustomerId,
-      limit: 100,
-    });
-
-    // Also check checkout sessions (to find payments made via Checkout)
-    const checkoutSessions = await stripe.checkout.sessions.list({
-      customer: stripeCustomerId,
-      limit: 100,
-    });
-
     // Check if user has any active subscription
     const hasPro = activeSubscriptions.data.length > 0;
     
-    // Check if user has ever made a payment:
-    // - Has any subscriptions (active or past)
-    // - Has successful charges
-    // - Has successful payment intents (for one-time payments)
-    // - Has successful checkout sessions (for Checkout payments)
-    const hasSuccessfulCharges = charges.data.some(
-      charge => charge.paid && charge.status === 'succeeded'
-    );
-    const hasSuccessfulPayments = paymentIntents.data.some(
-      pi => pi.status === 'succeeded'
-    );
-    const hasSuccessfulCheckouts = checkoutSessions.data.some(
-      session => session.payment_status === 'paid' || session.status === 'complete'
-    );
-    
-    const isPaid = allSubscriptions.data.length > 0 || 
-                   hasSuccessfulCharges || 
-                   hasSuccessfulPayments ||
-                   hasSuccessfulCheckouts;
-    
     console.log(`📊 Subscription status check for customer ${stripeCustomerId}:`, {
       activeSubscriptions: activeSubscriptions.data.length,
-      allSubscriptions: allSubscriptions.data.length,
-      charges: charges.data.length,
-      successfulCharges: charges.data.filter(c => c.paid && c.status === 'succeeded').length,
-      paymentIntents: paymentIntents.data.length,
-      successfulPayments: paymentIntents.data.filter(pi => pi.status === 'succeeded').length,
-      checkoutSessions: checkoutSessions.data.length,
-      successfulCheckouts: checkoutSessions.data.filter(s => s.payment_status === 'paid' || s.status === 'complete').length,
       hasPro,
-      isPaid,
     });
     
     const activeEntitlements = activeSubscriptions.data.map((sub) => sub.id);
@@ -317,7 +263,6 @@ export const getSubscriptionStatus = async (
       success: true,
       data: {
         hasPro,
-        isPaid,
         activeEntitlements,
       },
     });
@@ -531,6 +476,109 @@ export const createCheckoutSession = async (
     res.status(500).json({
       success: false,
       error: 'Failed to create checkout session',
+    });
+  }
+};
+
+/**
+ * GET /api/stripe/verify-checkout-session
+ * 
+ * Verifies a Stripe checkout session and returns payment status
+ * Used after Stripe redirects back to the app
+ */
+export const verifyCheckoutSession = async (
+  req: AuthRequest,
+  res: Response<ApiResponse<{ 
+    status: string; 
+    sessionId: string;
+    customerId?: string;
+    paymentStatus?: string;
+    error?: string;
+  }>>
+): Promise<void> => {
+  try {
+    if (!stripe) {
+      res.status(503).json({
+        success: false,
+        error: 'Stripe is not configured',
+      });
+      return;
+    }
+
+    const { sessionId } = req.query;
+
+    if (!sessionId || typeof sessionId !== 'string') {
+      res.status(400).json({
+        success: false,
+        error: 'Session ID is required',
+      });
+      return;
+    }
+
+    // Retrieve the checkout session from Stripe
+    const session = await stripe.checkout.sessions.retrieve(sessionId, {
+      expand: ['payment_intent', 'subscription'],
+    });
+
+    // Verify the session belongs to the current user
+    const userId = req.user?.id;
+    if (session.metadata?.app_user_id !== userId) {
+      res.status(403).json({
+        success: false,
+        error: 'Session does not belong to this user',
+      });
+      return;
+    }
+
+    // Determine payment status
+    let status = 'unknown';
+    let paymentStatus = 'unknown';
+    let error: string | undefined;
+
+    if (session.payment_status === 'paid') {
+      status = 'success';
+      paymentStatus = 'paid';
+    } else if (session.payment_status === 'unpaid') {
+      status = 'failed';
+      paymentStatus = 'unpaid';
+      error = 'Payment was not completed';
+    } else if (session.status === 'expired') {
+      status = 'failed';
+      paymentStatus = 'expired';
+      error = 'Checkout session expired';
+    } else if (session.status === 'complete' && session.payment_status === 'paid') {
+      status = 'success';
+      paymentStatus = 'paid';
+    } else {
+      status = 'failed';
+      paymentStatus = session.payment_status || 'unknown';
+      error = `Payment status: ${session.payment_status || 'unknown'}`;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        status,
+        sessionId: session.id,
+        customerId: session.customer as string | undefined,
+        paymentStatus,
+        error,
+      },
+    });
+  } catch (error: any) {
+    console.error('Error verifying checkout session:', error);
+
+    if (error.type === 'StripeInvalidRequestError') {
+      res.status(400).json({
+        success: false,
+        error: error.message || 'Invalid session ID',
+      });
+      return;
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'Failed to verify checkout session',
     });
   }
 };
