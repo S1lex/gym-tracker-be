@@ -9,6 +9,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import { config } from './config/config';
 import apiRoutes from './routes/api';
+import i18nRouter from './routes/i18n';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
 const app: Express = express();
@@ -82,6 +83,10 @@ app.get('/health', (_req: express.Request, res: express.Response) => {
 
 // API routes (auth and exercises are public, workouts and sets are protected)
 app.use('/api', apiRoutes);
+
+// Also register i18n routes directly at /i18n for easier testing (optional)
+// This allows both /api/i18n/es/common.json and /i18n/es/common.json to work
+app.use('/i18n', i18nRouter);
 
 // Error handling middleware
 app.use(notFoundHandler);
