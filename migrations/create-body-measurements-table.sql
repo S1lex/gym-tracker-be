@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS body_measurements (
     'right_forearm',
     'waist',
     'hips',
+    'glutes',
     'left_thigh',
     'right_thigh',
     'left_calf',
