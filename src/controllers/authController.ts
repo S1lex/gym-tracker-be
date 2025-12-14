@@ -151,10 +151,38 @@ export const register = async (
   try {
     const { email, password }: RegisterRequest = req.body;
 
-    if (!email || !password) {
+    // Validate email
+    if (!email) {
       res.status(400).json({
         success: false,
-        error: 'Email and password are required',
+        error: 'Email is required',
+      });
+      return;
+    }
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      res.status(400).json({
+        success: false,
+        error: 'Please enter a valid email address',
+      });
+      return;
+    }
+
+    // Validate password
+    if (!password) {
+      res.status(400).json({
+        success: false,
+        error: 'Password is required',
+      });
+      return;
+    }
+
+    if (password.length < 6) {
+      res.status(400).json({
+        success: false,
+        error: 'Password must be at least 6 characters long',
       });
       return;
     }
@@ -171,9 +199,20 @@ export const register = async (
     console.log('Registering error:', signUpError); 
 
     if (signUpError) {
+      // Improve error messages for common cases
+      let errorMessage = signUpError.message;
+      
+      if (signUpError.message.includes('already registered') || signUpError.message.includes('already exists')) {
+        errorMessage = 'An account with this email already exists. Please use a different email or try logging in.';
+      } else if (signUpError.message.includes('invalid email')) {
+        errorMessage = 'Please enter a valid email address';
+      } else if (signUpError.message.includes('password')) {
+        errorMessage = 'Password is too weak. Please use a stronger password (at least 6 characters).';
+      }
+      
       res.status(400).json({
         success: false,
-        error: signUpError.message,
+        error: errorMessage,
       });
       return;
     }
