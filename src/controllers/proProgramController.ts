@@ -75,13 +75,14 @@ export const getProPrograms = async (
   res: Response<ApiResponse<ProProgram[]>>
 ): Promise<void> => {
   try {
-    const { data, error } = await supabaseAdmin
+    // First, get all pro programs
+    const { data: programsData, error: programsError } = await supabaseAdmin
       .from('pro_programs')
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('Error fetching pro programs:', error);
+    if (programsError) {
+      console.error('Error fetching pro programs:', programsError);
       res.status(500).json({
         success: false,
         error: 'Failed to fetch pro programs',
@@ -89,9 +90,84 @@ export const getProPrograms = async (
       return;
     }
 
+    if (!programsData || programsData.length === 0) {
+      res.json({
+        success: true,
+        data: [],
+      });
+      return;
+    }
+
+    // Get all days for all programs
+    const programIds = programsData.map((p: any) => p.id);
+    const { data: daysData, error: daysError } = await supabaseAdmin
+      .from('pro_program_days')
+      .select('*')
+      .in('pro_program_id', programIds)
+      .order('day_number', { ascending: true });
+
+    if (daysError) {
+      console.error('Error fetching pro program days:', daysError);
+      // Continue without days rather than failing completely
+    }
+
+    // Get all template IDs from days
+    const templateIds = (daysData || [])
+      .map((day: any) => day.template_id)
+      .filter((id: any): id is string => id !== null && id !== undefined);
+    
+    // Fetch templates if we have any template IDs
+    let templatesMap: { [key: string]: any } = {};
+    if (templateIds.length > 0) {
+      const { data: templatesData, error: templatesError } = await supabaseAdmin
+        .from('workout_templates')
+        .select('id, name, description, training_type')
+        .in('id', templateIds);
+
+      if (templatesError) {
+        console.error('Error fetching templates:', templatesError);
+      } else if (templatesData) {
+        templatesMap = templatesData.reduce((acc: any, template: any) => {
+          acc[template.id] = template;
+          return acc;
+        }, {});
+      }
+    }
+
+    // Transform the data to match expected structure
+    const transformedPrograms = programsData.map((program: any) => {
+      const programDays = (daysData || []).filter((day: any) => day.pro_program_id === program.id);
+      
+      const transformedDays = programDays.map((day: any) => {
+        const template = day.template_id ? templatesMap[day.template_id] || null : null;
+        
+        return {
+          id: day.id,
+          pro_program_id: day.pro_program_id,
+          day_number: day.day_number,
+          name: day.name,
+          template_id: day.template_id,
+          created_at: day.created_at,
+          template: template,
+        };
+      });
+
+      return {
+        id: program.id,
+        title: program.title,
+        description: program.description,
+        level: program.level,
+        days_per_week: program.days_per_week,
+        images: program.images,
+        created_at: program.created_at,
+        updated_at: program.updated_at,
+        days: transformedDays,
+      };
+    });
+
     res.json({
       success: true,
-      data: data || [],
+      data: transformedPrograms,
     });
   } catch (error) {
     console.error('Error in getProPrograms:', error);
@@ -143,7 +219,7 @@ export const getProProgramById = async (
       .select(
         `
         *,
-        workout_templates!pro_program_days_template_id_fkey (
+        workout_templates (
           id,
           name,
           description,

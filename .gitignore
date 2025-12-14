@@ -10,6 +10,11 @@ dist/
 .env.local
 .env.*.local
 
+# Temporary files with secrets (DO NOT COMMIT)
+STRIPE_KEYS_UPDATE.txt
+*_KEYS_UPDATE.txt
+*_SECRETS*.txt
+
 # Logs
 logs/
 *.log

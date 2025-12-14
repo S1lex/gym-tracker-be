@@ -71,6 +71,7 @@ export const getTemplates = async (
 /**
  * Get a single template by ID, including all associated exercises
  * GET /api/templates/:id
+ * Allows fetching both user templates and pro program templates
  */
 export const getTemplateById = async (
   req: AuthRequest,
@@ -81,6 +82,8 @@ export const getTemplateById = async (
     const { id } = req.params;
 
     // Get template with exercises
+    // Allow both user templates (user_id = userId) and pro program templates (is_pro_program_template = TRUE)
+    // Since we're using supabaseAdmin, RLS is bypassed, so we can query directly
     const { data, error } = await supabaseAdmin
       .from('workout_templates')
       .select(
@@ -106,7 +109,6 @@ export const getTemplateById = async (
       `
       )
       .eq('id', id)
-      .eq('user_id', userId)
       .single();
 
     if (error) {
@@ -121,6 +123,27 @@ export const getTemplateById = async (
       res.status(500).json({
         success: false,
         error: 'Failed to fetch template',
+      });
+      return;
+    }
+
+    // Check if template exists and user has access (either owns it or it's a pro program template)
+    if (!data) {
+      res.status(404).json({
+        success: false,
+        error: 'Template not found',
+      });
+      return;
+    }
+
+    const hasAccess = 
+      data.user_id === userId || 
+      data.is_pro_program_template === true;
+    
+    if (!hasAccess) {
+      res.status(404).json({
+        success: false,
+        error: 'Template not found',
       });
       return;
     }
