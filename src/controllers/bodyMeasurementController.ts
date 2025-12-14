@@ -241,7 +241,7 @@ export const createMeasurementsBatch = async (
     const validUnits = ['kg', 'lbs', 'cm', 'in', '%'];
 
     const measurementsToInsert = measurements
-      .filter((m) => m.value !== undefined && m.value !== null && m.value !== '')
+      .filter((m) => m.value !== undefined && m.value !== null && typeof m.value === 'number' && !isNaN(m.value))
       .map((m) => {
         if (!validTypes.includes(m.type)) {
           throw new Error(`Invalid measurement type: ${m.type}`);

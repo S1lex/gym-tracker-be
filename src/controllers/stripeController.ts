@@ -142,7 +142,7 @@ export const createPortalSession = async (
  * This can be used by the frontend to initialize Stripe.js
  */
 export const getStripeConfig = async (
-  req: AuthRequest,
+  _req: AuthRequest,
   res: Response<ApiResponse<{ publishableKey?: string }>>
 ): Promise<void> => {
   try {
@@ -283,7 +283,7 @@ export const getSubscriptionStatus = async (
  * (Web uses Stripe directly, iOS/Android use RevenueCat)
  */
 export const getProducts = async (
-  req: AuthRequest,
+  _req: AuthRequest,
   res: Response<ApiResponse<Array<{
     id: string;
     name: string;
@@ -546,9 +546,10 @@ export const verifyCheckoutSession = async (
       status = 'failed';
       paymentStatus = 'expired';
       error = 'Checkout session expired';
-    } else if (session.status === 'complete' && session.payment_status === 'paid') {
+    } else if (session.status === 'complete') {
+      // When session is complete, payment_status can be 'paid' or 'no_payment_required'
       status = 'success';
-      paymentStatus = 'paid';
+      paymentStatus = (session.payment_status as string) || 'unknown';
     } else {
       status = 'failed';
       paymentStatus = session.payment_status || 'unknown';
