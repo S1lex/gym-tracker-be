@@ -6,6 +6,7 @@
  */
 
 import { config } from '../config/config';
+import Stripe from 'stripe';
 
 interface RevenueCatCustomer {
   request_date: string;
@@ -193,7 +194,7 @@ export const getOrCreateStripeCustomerId = async (
       if (customers.data.length > 0) {
         // Find customer that matches this user ID in metadata
         const matchingCustomer = customers.data.find(
-          customer => customer.metadata?.app_user_id === appUserId
+          (customer: Stripe.Customer) => customer.metadata?.app_user_id === appUserId
         );
         
         if (matchingCustomer) {
