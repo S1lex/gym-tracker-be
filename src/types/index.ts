@@ -65,6 +65,7 @@ export interface AuthResponse {
     access_token: string;
     refresh_token: string;
   } | null; // Can be null when email verification is required
+  is_new_user?: boolean; // Indicates if this is a new user registration (for OAuth flows)
 }
 
 export interface CreateWorkoutRequest {
