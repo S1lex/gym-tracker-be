@@ -10,7 +10,7 @@ import * as stripeController from '../controllers/stripeController';
 import * as bodyMeasurementController from '../controllers/bodyMeasurementController';
 import * as weeklyScheduleController from '../controllers/weeklyScheduleController';
 import * as userGoalsController from '../controllers/userGoalsController';
-import { authenticate } from '../middleware/auth';
+import { authenticate, optionalAuthenticate } from '../middleware/auth';
 import i18nRouter from './i18n';
 
 const router = Router();
@@ -47,9 +47,12 @@ router.post('/templates', authenticate, templateController.createTemplate);
 router.put('/templates/:id', authenticate, templateController.updateTemplate);
 router.delete('/templates/:id', authenticate, templateController.deleteTemplate);
 
-// Pro Programs routes (public - no auth required for viewing)
-router.get('/pro-programs', proProgramController.getProPrograms);
-router.get('/pro-programs/:id', proProgramController.getProProgramById);
+// Pro Programs routes (public - but include progress if authenticated)
+router.get('/pro-programs', optionalAuthenticate, proProgramController.getProPrograms);
+router.get('/pro-programs/:id', optionalAuthenticate, proProgramController.getProProgramById);
+// Pro Program progress routes (require authentication)
+router.get('/pro-programs/progress', authenticate, proProgramController.getUserProProgramProgress);
+router.post('/pro-programs/:programId/days/:dayId/complete', authenticate, proProgramController.markProProgramDayComplete);
 // Admin routes (require authentication)
 router.post('/pro-programs', authenticate, proProgramController.createProProgram);
 

@@ -47,6 +47,7 @@ export interface ProProgram {
   level: string;
   days_per_week: number;
   images?: string[];
+  free_plan?: boolean;
   created_at: string;
   updated_at: string;
   days?: ProProgramDay[];
@@ -58,6 +59,7 @@ export interface CreateProProgramRequest {
   level: string;
   days_per_week: number;
   images?: string[];
+  free_plan?: boolean;
   days: {
     day_number: number;
     name: string;
@@ -69,10 +71,11 @@ export interface CreateProProgramRequest {
  * Get all pro programs
  * GET /api/pro-programs
  * Public endpoint - no authentication required
+ * If user is authenticated, includes progress data
  */
 export const getProPrograms = async (
-  _req: AuthRequest,
-  res: Response<ApiResponse<ProProgram[]>>
+  req: AuthRequest,
+  res: Response<ApiResponse<ProProgram[] | (ProProgram & { progress?: { completedDays: number; totalDays: number } })[]>>
 ): Promise<void> => {
   try {
     // First, get all pro programs
@@ -159,11 +162,72 @@ export const getProPrograms = async (
         level: program.level,
         days_per_week: program.days_per_week,
         images: program.images,
+        free_plan: program.free_plan || false,
         created_at: program.created_at,
         updated_at: program.updated_at,
         days: transformedDays,
       };
     });
+
+    // If user is authenticated, include progress data
+    if (req.user?.id) {
+      try {
+        const userId = req.user.id;
+        console.log('getProPrograms: Fetching progress for authenticated user', { userId });
+        const { data: progressData, error: progressError } = await supabaseAdmin
+          .from('user_pro_program_progress')
+          .select('pro_program_id, pro_program_day_id')
+          .eq('user_id', userId);
+
+        if (progressError) {
+          console.error('Error fetching user progress:', progressError);
+          // Continue without progress data if fetch fails
+        } else {
+          console.log('getProPrograms: Progress data fetched', { 
+            progressCount: progressData?.length || 0,
+            progressData: progressData 
+          });
+          
+          // Group completed days by program
+          const progressByProgram: { [key: string]: string[] } = {};
+          (progressData || []).forEach((progress: any) => {
+            if (!progressByProgram[progress.pro_program_id]) {
+              progressByProgram[progress.pro_program_id] = [];
+            }
+            progressByProgram[progress.pro_program_id].push(progress.pro_program_day_id);
+          });
+
+          // Add progress to each program (even if no progress, show 0)
+          const programsWithProgress = transformedPrograms.map((program: any) => {
+            const completedDayIds = progressByProgram[program.id] || [];
+            const progressInfo = {
+              completedDays: completedDayIds.length,
+              totalDays: program.days?.length || program.days_per_week,
+            };
+            console.log('getProPrograms: Program progress', {
+              programId: program.id,
+              programTitle: program.title,
+              progress: progressInfo
+            });
+            return {
+              ...program,
+              progress: progressInfo,
+            };
+          });
+
+          res.json({
+            success: true,
+            data: programsWithProgress,
+          });
+          return;
+        }
+      } catch (progressError) {
+        console.error('Error fetching user progress:', progressError);
+        // Continue without progress data if fetch fails
+      }
+    } else {
+      console.log('getProPrograms: User not authenticated, returning programs without progress');
+    }
 
     res.json({
       success: true,
@@ -260,8 +324,34 @@ export const getProProgramById = async (
 
     const result: ProProgram = {
       ...programData,
+      free_plan: programData.free_plan || false,
       days: transformedDays || [],
     };
+
+    // If user is authenticated, include progress data with completed day IDs
+    if (req.user?.id) {
+      try {
+        const userId = req.user.id;
+        const { data: progressData, error: progressError } = await supabaseAdmin
+          .from('user_pro_program_progress')
+          .select('pro_program_day_id')
+          .eq('user_id', userId)
+          .eq('pro_program_id', id);
+
+        if (!progressError && progressData) {
+          const completedDayIds = progressData.map((p: any) => p.pro_program_day_id);
+          // Add progress object with completed day IDs
+          (result as any).progress = {
+            completedDays: completedDayIds.length,
+            totalDays: transformedDays.length || programData.days_per_week,
+            completedDayIds,
+          };
+        }
+      } catch (progressError) {
+        console.error('Error fetching progress for program:', progressError);
+        // Continue without progress data
+      }
+    }
 
     res.json({
       success: true,
@@ -286,7 +376,7 @@ export const createProProgram = async (
   res: Response<ApiResponse<ProProgram>>
 ): Promise<void> => {
   try {
-    const { title, description, level, days_per_week, images, days }: CreateProProgramRequest = req.body;
+    const { title, description, level, days_per_week, images, free_plan, days }: CreateProProgramRequest = req.body;
 
     // Validation
     if (!title || !title.trim()) {
@@ -330,6 +420,7 @@ export const createProProgram = async (
         level,
         days_per_week,
         images: images || [],
+        free_plan: free_plan || false,
       })
       .select()
       .single();
@@ -411,6 +502,183 @@ export const createProProgram = async (
     });
   } catch (error) {
     console.error('Error in createProProgram:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    });
+  }
+};
+
+/**
+ * Get user progress for PRO programs
+ * GET /api/pro-programs/progress
+ * Returns progress data for all PRO programs for the authenticated user
+ */
+export const getUserProProgramProgress = async (
+  req: AuthRequest,
+  res: Response<ApiResponse<{ [programId: string]: { completedDays: number; totalDays: number; completedDayIds: string[] } }>>
+): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+
+    // Get all completed days for this user
+    const { data: progressData, error: progressError } = await supabaseAdmin
+      .from('user_pro_program_progress')
+      .select('pro_program_id, pro_program_day_id')
+      .eq('user_id', userId);
+
+    if (progressError) {
+      console.error('Error fetching user progress:', progressError);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch user progress',
+      });
+      return;
+    }
+
+    // Get all PRO programs to get total days count
+    const { data: programsData, error: programsError } = await supabaseAdmin
+      .from('pro_programs')
+      .select('id, days_per_week');
+
+    if (programsError) {
+      console.error('Error fetching programs:', programsError);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to fetch programs',
+      });
+      return;
+    }
+
+    // Group completed days by program
+    const progressByProgram: { [key: string]: string[] } = {};
+    (progressData || []).forEach((progress: any) => {
+      if (!progressByProgram[progress.pro_program_id]) {
+        progressByProgram[progress.pro_program_id] = [];
+      }
+      progressByProgram[progress.pro_program_id].push(progress.pro_program_day_id);
+    });
+
+    // Build result object
+    const result: { [programId: string]: { completedDays: number; totalDays: number; completedDayIds: string[] } } = {};
+    (programsData || []).forEach((program: any) => {
+      const completedDayIds = progressByProgram[program.id] || [];
+      result[program.id] = {
+        completedDays: completedDayIds.length,
+        totalDays: program.days_per_week,
+        completedDayIds,
+      };
+    });
+
+    res.json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    console.error('Error in getUserProProgramProgress:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+    });
+  }
+};
+
+/**
+ * Mark a PRO program day as completed
+ * POST /api/pro-programs/:programId/days/:dayId/complete
+ * Marks a specific PRO program day as completed for the authenticated user
+ */
+export const markProProgramDayComplete = async (
+  req: AuthRequest,
+  res: Response<ApiResponse<{ success: boolean }>>
+): Promise<void> => {
+  try {
+    const userId = req.user!.id;
+    const { programId, dayId } = req.params;
+    const { workoutHistoryId } = req.body; // Optional workout history ID
+
+    // Verify that the day belongs to the program
+    const { data: dayData, error: dayError } = await supabaseAdmin
+      .from('pro_program_days')
+      .select('pro_program_id')
+      .eq('id', dayId)
+      .eq('pro_program_id', programId)
+      .single();
+
+    if (dayError || !dayData) {
+      res.status(404).json({
+        success: false,
+        error: 'PRO program day not found',
+      });
+      return;
+    }
+
+    // Check if already completed (upsert - insert or update if exists)
+    const { data: existingProgress, error: checkError } = await supabaseAdmin
+      .from('user_pro_program_progress')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('pro_program_day_id', dayId)
+      .single();
+
+    if (checkError && checkError.code !== 'PGRST116') {
+      // PGRST116 means no rows found, which is fine
+      console.error('Error checking existing progress:', checkError);
+    }
+
+    if (existingProgress) {
+      // Already completed, just update the workout_history_id if provided
+      if (workoutHistoryId) {
+        const { error: updateError } = await supabaseAdmin
+          .from('user_pro_program_progress')
+          .update({
+            workout_history_id: workoutHistoryId,
+            completed_at: new Date().toISOString(),
+          })
+          .eq('id', existingProgress.id);
+
+        if (updateError) {
+          console.error('Error updating progress:', updateError);
+          res.status(500).json({
+            success: false,
+            error: 'Failed to update progress',
+          });
+          return;
+        }
+      }
+
+      res.json({
+        success: true,
+        data: { success: true },
+      });
+      return;
+    }
+
+    // Insert new progress record
+    const { error: insertError } = await supabaseAdmin
+      .from('user_pro_program_progress')
+      .insert({
+        user_id: userId,
+        pro_program_id: programId,
+        pro_program_day_id: dayId,
+        workout_history_id: workoutHistoryId || null,
+      });
+
+    if (insertError) {
+      console.error('Error marking day as complete:', insertError);
+      res.status(500).json({
+        success: false,
+        error: 'Failed to mark day as complete',
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      data: { success: true },
+    });
+  } catch (error) {
+    console.error('Error in markProProgramDayComplete:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',

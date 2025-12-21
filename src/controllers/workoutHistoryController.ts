@@ -60,15 +60,17 @@ export const saveWorkoutHistory = async (
     const {
       timestamp,
       trainingType,
+      templateId,
       duration,
       tonnage,
       exercises,
-    }: Omit<WorkoutHistory, 'id' | 'userId'> = req.body;
+    }: Omit<WorkoutHistory, 'id' | 'userId'> & { templateId?: string } = req.body;
 
     console.log('saveWorkoutHistory: Received request', {
       userId,
       timestamp,
       trainingType,
+      templateId,
       duration,
       exercisesCount: exercises?.length || 0,
       exercises: exercises?.map(ex => ({
@@ -298,6 +300,80 @@ export const saveWorkoutHistory = async (
       totalExercisesReceived: exercises.length,
       endTime: endTime.toISOString()
     });
+
+    // If templateId is provided, check if it's from a PRO program and mark day as complete
+    if (templateId) {
+      console.log('saveWorkoutHistory: Checking if template belongs to PRO program day', { templateId });
+      try {
+        // Find if this template belongs to a PRO program day
+        const { data: proProgramDay, error: dayError } = await supabaseAdmin
+          .from('pro_program_days')
+          .select('id, pro_program_id')
+          .eq('template_id', templateId)
+          .single();
+
+        if (dayError) {
+          console.log('saveWorkoutHistory: Template is not from a PRO program day (this is OK for regular templates)', { 
+            templateId, 
+            error: dayError.message 
+          });
+        }
+
+        if (!dayError && proProgramDay) {
+          console.log('saveWorkoutHistory: Found PRO program day', {
+            programId: proProgramDay.pro_program_id,
+            dayId: proProgramDay.id,
+            templateId
+          });
+          // This template is from a PRO program day, mark it as completed
+          // Check if already exists, then insert or update
+          const { data: existingProgress } = await supabaseAdmin
+            .from('user_pro_program_progress')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('pro_program_day_id', proProgramDay.id)
+            .maybeSingle();
+
+          let progressError;
+          if (existingProgress) {
+            // Update existing record
+            const { error } = await supabaseAdmin
+              .from('user_pro_program_progress')
+              .update({
+                workout_history_id: workoutData.id,
+                completed_at: new Date().toISOString(),
+              })
+              .eq('id', existingProgress.id);
+            progressError = error;
+          } else {
+            // Insert new record
+            const { error } = await supabaseAdmin
+              .from('user_pro_program_progress')
+              .insert({
+                user_id: userId,
+                pro_program_id: proProgramDay.pro_program_id,
+                pro_program_day_id: proProgramDay.id,
+                workout_history_id: workoutData.id,
+              });
+            progressError = error;
+          }
+
+          if (progressError) {
+            console.error('Error marking PRO program day as complete:', progressError);
+            // Don't fail the workout save if progress tracking fails
+          } else {
+            console.log('PRO program day marked as complete:', {
+              programId: proProgramDay.pro_program_id,
+              dayId: proProgramDay.id,
+              workoutId: workoutData.id,
+            });
+          }
+        }
+      } catch (progressError) {
+        console.error('Error checking PRO program progress:', progressError);
+        // Don't fail the workout save if progress tracking fails
+      }
+    }
 
     res.status(201).json({
       success: true,
