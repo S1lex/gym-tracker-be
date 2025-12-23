@@ -11,6 +11,7 @@ interface Config {
     serviceRoleKey: string;
   };
   jwtSecret: string;
+  allowedOrigins?: string[];
   stripe: {
     secretKey: string;
     publishableKey?: string;
@@ -57,7 +58,19 @@ function getConfig(): Config {
       anonKey: process.env.SUPABASE_ANON_KEY!,
       serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
     },
-    jwtSecret: process.env.JWT_SECRET || 'default-secret-change-in-production',
+    jwtSecret: (() => {
+      const secret = process.env.JWT_SECRET;
+      if (!secret && process.env.NODE_ENV === 'production') {
+        throw new Error('JWT_SECRET is required in production environment');
+      }
+      if (!secret || secret === 'default-secret-change-in-production') {
+        console.warn('⚠️  Using default JWT_SECRET. Change this in production!');
+      }
+      return secret || 'default-secret-change-in-production';
+    })(),
+    allowedOrigins: process.env.ALLOWED_ORIGINS 
+      ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
+      : undefined,
     stripe: {
       secretKey: process.env.STRIPE_SECRET_KEY || '',
       publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
@@ -68,7 +81,7 @@ function getConfig(): Config {
     },
     rateLimit: {
       windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS || '900000', 10),
-      maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '100', 10),
+      maxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS || '150', 10),
     },
   };
 }

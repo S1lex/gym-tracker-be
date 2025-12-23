@@ -102,8 +102,11 @@ export const getTemplateById = async (
             name,
             category,
             primaryMuscles,
+            secondaryMuscles,
             equipment,
-            instructions
+            instructions,
+            images,
+            video_url
           )
         )
       `
@@ -363,8 +366,11 @@ export const createTemplate = async (
             name,
             category,
             primaryMuscles,
+            secondaryMuscles,
             equipment,
-            instructions
+            instructions,
+            images,
+            video_url
           )
         )
       `
@@ -512,8 +518,11 @@ export const updateTemplate = async (
             name,
             category,
             primaryMuscles,
+            secondaryMuscles,
             equipment,
-            instructions
+            instructions,
+            images,
+            video_url
           )
         )
       `

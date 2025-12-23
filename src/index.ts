@@ -4,8 +4,12 @@ import { config } from './config/config';
 const PORT = config.port;
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server is running on port ${PORT}`);
-  console.log(`📝 Environment: ${config.nodeEnv}`);
-  console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  if (config.nodeEnv === 'development') {
+    console.log(`🚀 Server is running on port ${PORT}`);
+    console.log(`📝 Environment: ${config.nodeEnv}`);
+    console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  } else {
+    console.log(`Server started on port ${PORT} (${config.nodeEnv})`);
+  }
 });
 
