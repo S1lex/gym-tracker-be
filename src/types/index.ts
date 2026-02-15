@@ -5,6 +5,15 @@ export interface Profile {
   full_name?: string;
   avatar_url?: string;
   updated_at: string;
+  // Onboarding fields
+  gender?: 'male' | 'female' | 'other' | null;
+  current_weight?: number | null;
+  current_weight_unit?: 'kg' | 'lbs' | null;
+  target_weight?: number | null;
+  target_weight_unit?: 'kg' | 'lbs' | null;
+  problem_zones?: string[] | null;
+  training_preference?: 'gym' | 'home' | null;
+  onboarding_completed_at?: string | null;
 }
 
 // Exercise types

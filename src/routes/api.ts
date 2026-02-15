@@ -10,6 +10,7 @@ import * as stripeController from '../controllers/stripeController';
 import * as bodyMeasurementController from '../controllers/bodyMeasurementController';
 import * as weeklyScheduleController from '../controllers/weeklyScheduleController';
 import * as userGoalsController from '../controllers/userGoalsController';
+import * as userController from '../controllers/userController';
 import { authenticate, optionalAuthenticate } from '../middleware/auth';
 import i18nRouter from './i18n';
 
@@ -84,5 +85,9 @@ router.post('/user-goals', authenticate, userGoalsController.createGoal);
 router.put('/user-goals/:id', authenticate, userGoalsController.updateGoal);
 router.put('/user-goals/:id/update-current', authenticate, userGoalsController.updateGoalCurrentValue);
 router.delete('/user-goals/:id', authenticate, userGoalsController.deleteGoal);
+
+// User onboarding routes (require authentication)
+router.post('/user/onboarding', authenticate, userController.submitOnboarding);
+router.get('/user/onboarding', authenticate, userController.getOnboarding);
 
 export default router;
