@@ -1,4 +1,4 @@
--- Gym Tracker Supabase Database Schema
+-- FitGuard Supabase Database Schema
 -- Run this SQL in your Supabase SQL Editor
 
 -- Enable UUID extension

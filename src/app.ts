@@ -108,7 +108,7 @@ if (config.nodeEnv !== 'development') {
 app.get('/', (_req: express.Request, res: express.Response) => {
   res.json({
     success: true,
-    message: 'Gym Tracker API',
+    message: 'FitGuard API',
     version: '1.0.0',
     endpoints: {
       health: '/health',

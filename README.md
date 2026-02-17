@@ -1,4 +1,4 @@
-# Gym Tracker Backend API
+# FitGuard Backend API
 
 A robust backend API for a gym workout tracking application built with Node.js, Express.js, TypeScript, and Supabase.
 
