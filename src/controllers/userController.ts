@@ -69,7 +69,7 @@ export const submitOnboarding = async (
     }
 
     // Update user profile with onboarding data
-    const { data, error } = await supabaseAdmin
+    const { error } = await supabaseAdmin
       .from('profiles')
       .update({
         gender,
@@ -80,6 +80,7 @@ export const submitOnboarding = async (
         problem_zones: problem_zones || [],
         training_preference,
         onboarding_completed_at: new Date().toISOString(),
+        onboarding_filled: true,
         updated_at: new Date().toISOString(),
       })
       .eq('id', userId)
@@ -143,6 +144,7 @@ export const getOnboarding = async (
     problem_zones: string[] | null;
     training_preference: string | null;
     onboarding_completed_at: string | null;
+    onboardingFilled: boolean;
   }>>
 ): Promise<void> => {
   try {
@@ -150,9 +152,9 @@ export const getOnboarding = async (
 
     const { data, error } = await supabaseAdmin
       .from('profiles')
-      .select('gender, current_weight, current_weight_unit, target_weight, target_weight_unit, problem_zones, training_preference, onboarding_completed_at')
+      .select('gender, current_weight, current_weight_unit, target_weight, target_weight_unit, problem_zones, training_preference, onboarding_completed_at, onboarding_filled')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error('Error fetching onboarding data:', error);
@@ -163,17 +165,21 @@ export const getOnboarding = async (
       return;
     }
 
+    // No profile row (e.g. new user) or new user: onboardingFilled = false
+    const onboardingFilled = data?.onboarding_filled === true || !!(data?.onboarding_completed_at);
+
     res.json({
       success: true,
       data: {
         gender: data?.gender || null,
-        current_weight: data?.current_weight || null,
+        current_weight: data?.current_weight ?? null,
         current_weight_unit: data?.current_weight_unit || null,
-        target_weight: data?.target_weight || null,
+        target_weight: data?.target_weight ?? null,
         target_weight_unit: data?.target_weight_unit || null,
         problem_zones: data?.problem_zones || null,
         training_preference: data?.training_preference || null,
         onboarding_completed_at: data?.onboarding_completed_at || null,
+        onboardingFilled,
       },
     });
   } catch (error) {

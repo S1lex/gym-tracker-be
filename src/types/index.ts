@@ -14,6 +14,7 @@ export interface Profile {
   problem_zones?: string[] | null;
   training_preference?: 'gym' | 'home' | null;
   onboarding_completed_at?: string | null;
+  onboarding_filled?: boolean;
 }
 
 // Exercise types
