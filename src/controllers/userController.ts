@@ -69,7 +69,7 @@ export const submitOnboarding = async (
     }
 
     // Update user profile with onboarding data
-    const { data, error } = await supabaseAdmin
+    const { error } = await supabaseAdmin
       .from('profiles')
       .update({
         gender,
