@@ -79,11 +79,12 @@ router.get('/weekly-schedule', authenticate, weeklyScheduleController.getWeeklyS
 router.put('/weekly-schedule', authenticate, weeklyScheduleController.updateWeeklySchedule);
 
 // User Goals routes (require authentication)
+// More specific route first so PUT /user-goals/:id/update-current is not matched by PUT /user-goals/:id
 router.get('/user-goals', authenticate, userGoalsController.getUserGoals);
 router.get('/user-goals/:id', authenticate, userGoalsController.getGoalById);
 router.post('/user-goals', authenticate, userGoalsController.createGoal);
-router.put('/user-goals/:id', authenticate, userGoalsController.updateGoal);
 router.put('/user-goals/:id/update-current', authenticate, userGoalsController.updateGoalCurrentValue);
+router.put('/user-goals/:id', authenticate, userGoalsController.updateGoal);
 router.delete('/user-goals/:id', authenticate, userGoalsController.deleteGoal);
 
 // User onboarding routes (require authentication)

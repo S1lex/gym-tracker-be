@@ -320,6 +320,9 @@ export const updateGoalCurrentValue = async (
       .single();
 
     if (goalError || !goal) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[updateGoalCurrentValue] Goal not found:', { id, userId, goalError: goalError?.message });
+      }
       res.status(404).json({
         success: false,
         error: 'Goal not found',
